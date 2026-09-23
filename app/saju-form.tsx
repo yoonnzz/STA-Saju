@@ -21,6 +21,7 @@ import {
 } from "../lib/saju/stored-reading";
 import { hasSupabaseConfig } from "../lib/supabase/config";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
+import SajuOverview from "./saju-overview";
 
 const ACCOUNT_FALLBACK_PREFIX = "saju-reading-account-v1:";
 
@@ -412,6 +413,8 @@ export default function SajuForm() {
               </p>
             </div>
 
+            <SajuOverview chart={chart} />
+
             <section className="ai-panel" aria-labelledby="ai-title">
               <p className="result-label">사주를 더 깊게 읽기</p>
               <h3 id="ai-title">Gemini 해석</h3>
@@ -500,15 +503,10 @@ export default function SajuForm() {
                     <strong>계산에서 확인한 사실</strong> — 네 기둥의 천간과 지지,
                     총 8글자에 해당하는 대표 오행을 하나씩 셌습니다.
                   </p>
-                  <ul className="element-list">
+                  <ul className="element-meaning-list">
                     {reading?.elementRows.map((row) => (
                       <li key={row.element}>
-                        <span className="element-name">{row.element}</span>
-                        <span className="element-track" aria-hidden="true">
-                          <span style={{ width: `${(row.count / 8) * 100}%` }} />
-                        </span>
-                        <span className="element-count">{row.count} / 8</span>
-                        <span className="element-meaning">{row.meaning}</span>
+                        <strong>{row.element}</strong> — {row.meaning}
                       </li>
                     ))}
                   </ul>
