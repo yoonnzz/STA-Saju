@@ -4,6 +4,8 @@ import { calculate } from "../lib/saju/chart";
 import {
   GEMINI_RESPONSE_SCHEMA,
   makeGeminiPrompt,
+  makeShenshaPrompt,
+  makeShenshaResponseSchema,
   validateGeminiReading,
   type GeminiReading,
 } from "../lib/saju/interpretation";
@@ -75,6 +77,20 @@ const reading: GeminiReading = {
       advice: "작은 행동 한 가지를 시도해 봅니다.",
     })),
   },
+  shensha: {
+    overview: "계산된 살과 귀인을 삶을 돌아보는 보조 자료로 읽습니다.",
+    items: chart.shensha!.matched.map((item) => ({
+      ruleId: item.ruleId,
+      name: item.name,
+      easyMeaning: "이 상징이 뜻하는 바를 쉬운 말로 살펴봅니다.",
+      positiveConditions: "상황을 차분히 살피면 도움이 될 수 있습니다.",
+      challengingConditions: "서둘러 단정하면 어려움이 될 수 있습니다.",
+      lifeExample: "친구와 의견을 나누는 가상 상황을 떠올릴 수 있습니다.",
+      action: "오늘 한 가지 선택을 천천히 해 봅니다.",
+      timingNote: "현재 시기에 같은 상징이 나타나는지 살펴봅니다.",
+      evidenceRuleIds: [item.ruleId],
+    })),
+  },
   finalAdvice: {
     summary: "계산 결과를 참고로 자신에게 맞는 행동을 선택합니다.",
     actions: ["오늘 할 일을 하나 정해 봅니다.", "필요한 도움을 물어봅니다.", "하루를 천천히 돌아봅니다."],
@@ -93,6 +109,16 @@ function request(body: unknown): Request {
 
 test("구조화된 세 항목과 계산 근거를 갖춘 해석을 허용한다", () => {
   assert.deepEqual(validateGeminiReading(reading, false, chart), reading);
+});
+
+test("계산된 살·귀인 전체와 정확히 같은 ID·이름·근거만 허용한다", () => {
+  const items = reading.shensha!.items;
+  assert.equal(items.length, chart.shensha!.matched.length);
+  assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: items.slice(1) } }, false, chart));
+  assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [...items, items[0]] } }, false, chart));
+  assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [{ ...items[0], ruleId: "invented_rule", evidenceRuleIds: ["invented_rule"] }, ...items.slice(1)] } }, false, chart));
+  assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [{ ...items[0], name: "다른 이름" }, ...items.slice(1)] } }, false, chart));
+  assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [{ ...items[0], evidenceRuleIds: [items[1].ruleId] }, ...items.slice(1)] } }, false, chart));
 });
 
 test("새 깊은 해석은 세 카테고리와 2026·2027년, 열두 달, 실천 조언을 모두 요구한다", () => {
@@ -152,11 +178,20 @@ test("Gemini 프롬프트에는 계산 근거가 있고 원본 출생 일시가 
   const prompt = makeGeminiPrompt(chart);
   assert.match(prompt, /계산 근거/);
   assert.match(prompt, new RegExp(chart.dayMaster.korean));
-  assert.match(prompt, /초등학생도 이해할 수/);
+  assert.match(prompt, /20~30대/);
+  assert.match(prompt, /바로 다음 문장에서 일상적인 뜻/);
+  assert.match(prompt, /직장, 이직, 독립, 연애/);
+  assert.match(prompt, /깊은 구조 계산/);
+  assert.match(prompt, /십성|지장간/);
   assert.match(prompt, /가상 상황/);
   assert.match(prompt, /시기 계산/);
+  assert.doesNotMatch(prompt, /초등학생|초등학교 5학년/);
   assert.doesNotMatch(prompt, /2005-12-23|08:37/);
   assert.doesNotMatch(prompt, /"gender"|"male"|"female"/);
+  const shenshaPrompt = makeShenshaPrompt(chart);
+  assert.match(shenshaPrompt, /20~30대/);
+  assert.match(shenshaPrompt, /직장·독립·연애·돈 관리/);
+  assert.doesNotMatch(shenshaPrompt, /초등학생|2005-12-23|08:37|"gender"/);
 });
 
 test("최근 정상 결과만 저장 데이터로 읽고 깨진 데이터와 다른 버전은 거부한다", () => {
@@ -166,6 +201,8 @@ test("최근 정상 결과만 저장 데이터로 읽고 깨진 데이터와 다
   assert.equal(parseStoredReading(JSON.stringify({ ...stored, version: 2 })), null);
   assert.equal(parseStoredReading(JSON.stringify({ ...stored, createdAt: "yesterday" })), null);
   assert.equal(parseStoredReading(JSON.stringify({ ...stored, reading: { ...reading, career: null } })), null);
+  assert.equal(parseStoredReading(JSON.stringify({ ...stored, chart: { ...chart, structure: { ...chart.structure, tenGods: [] } } })), null);
+  assert.equal(parseStoredReading(JSON.stringify({ ...stored, chart: { ...chart, structure: { ...chart.structure, elementScores: { 목: "many" } } } })), null);
 });
 
 test("예시가 없던 이전 버전의 정상 저장 결과도 계속 읽는다", () => {
@@ -178,7 +215,7 @@ test("예시가 없던 이전 버전의 정상 저장 결과도 계속 읽는다
   const stored = {
     version: 1,
     createdAt: "2026-09-23T00:00:00.000Z",
-    chart: { ...chart, fortune: undefined },
+    chart: { ...chart, fortune: undefined, shensha: undefined, structure: undefined },
     reading: legacyReading,
   };
   const parsed = parseStoredReading(JSON.stringify(stored));
@@ -186,6 +223,7 @@ test("예시가 없던 이전 버전의 정상 저장 결과도 계속 읽는다
   assert.equal(parsed.reading.personality.example, undefined);
   assert.equal(parsed.reading.career.example, undefined);
   assert.equal(parsed.reading.relationships.example, undefined);
+  assert.equal(parsed.chart.structure, undefined);
 });
 
 test("잘못된 출생 입력은 Gemini를 호출하지 않는다", async () => {
@@ -275,25 +313,38 @@ test("서버는 지정 모델에 키 헤더와 계산 결과만 보내고 구조
   const oldKey = process.env.GEMINI_API_KEY;
   const oldFetch = globalThis.fetch;
   process.env.GEMINI_API_KEY = "unit-test-key";
-  let url = "";
-  let options: RequestInit | undefined;
+  const requests: Array<{ url: string; options: RequestInit | undefined }> = [];
   globalThis.fetch = async (target, init) => {
-    url = String(target);
-    options = init;
-    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(reading) }] } }] });
+    const index = requests.push({ url: String(target), options: init }) - 1;
+    const answer = index === 0 ? { ...reading, shensha: undefined } : reading.shensha;
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] });
   };
   try {
     const response = await POST(request({ date: input.date, time: input.time }));
     assert.equal(response.status, 200);
-    assert.match(url, /models\/gemini-3\.5-flash-lite:generateContent$/);
-    assert.equal((options?.headers as Record<string, string>)["x-goog-api-key"], "unit-test-key");
-    const sentBody = JSON.parse(String(options?.body));
-    const sent = JSON.stringify(sentBody);
-    assert.match(sent, /계산 근거/);
-    assert.doesNotMatch(sent, /2005-12-23|08:37|unit-test-key|"gender"|"male"/);
-    assert.equal(sentBody.generationConfig.responseMimeType, "application/json");
-    assert.deepEqual(sentBody.generationConfig.responseSchema, GEMINI_RESPONSE_SCHEMA);
-    assert.equal("responseFormat" in sentBody.generationConfig, false);
+    assert.equal(requests.length, 2);
+    for (const item of requests) {
+      assert.match(item.url, /models\/gemini-3\.5-flash-lite:generateContent$/);
+      assert.equal((item.options?.headers as Record<string, string>)["x-goog-api-key"], "unit-test-key");
+      const sent = JSON.stringify(JSON.parse(String(item.options?.body)));
+      assert.doesNotMatch(sent, /2005-12-23|08:37|unit-test-key|"gender"|"male"/);
+    }
+    const baseBody = JSON.parse(String(requests[0].options?.body));
+    const shenshaBody = JSON.parse(String(requests[1].options?.body));
+    assert.match(JSON.stringify(baseBody), /계산 근거/);
+    assert.match(JSON.stringify(shenshaBody), /살·귀인 계산/);
+    assert.equal(baseBody.generationConfig.responseMimeType, "application/json");
+    assert.equal(shenshaBody.generationConfig.responseMimeType, "application/json");
+    assert.deepEqual(baseBody.generationConfig.responseSchema, GEMINI_RESPONSE_SCHEMA);
+    assert.deepEqual(shenshaBody.generationConfig.responseSchema, makeShenshaResponseSchema(chart));
+    assert.equal(shenshaBody.generationConfig.responseSchema.properties.items.minItems, chart.shensha!.matched.length);
+    assert.equal(shenshaBody.generationConfig.responseSchema.properties.items.maxItems, chart.shensha!.matched.length);
+    assert.deepEqual(
+      shenshaBody.generationConfig.responseSchema.properties.items.items.properties.ruleId.enum,
+      chart.shensha!.matched.map((item) => item.ruleId),
+    );
+    assert.equal("responseFormat" in baseBody.generationConfig, false);
+    assert.equal("responseFormat" in shenshaBody.generationConfig, false);
     const result = await response.json();
     assert.deepEqual(result.chart, chart);
     assert.deepEqual(result.reading, reading);
@@ -335,6 +386,34 @@ test("잘못된 Gemini 응답과 요청 실패는 가짜 해석 없이 오류를
     const payload = await failed.json();
     assert.equal("reading" in payload, false);
     assert.doesNotMatch(JSON.stringify(payload), /network details must stay private/);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = oldKey;
+  }
+});
+
+test("두 AI 요청 중 하나라도 실패하면 합쳐진 결과를 반환하지 않는다", async () => {
+  const oldKey = process.env.GEMINI_API_KEY;
+  const oldFetch = globalThis.fetch;
+  process.env.GEMINI_API_KEY = "unit-test-key";
+  try {
+    for (const failingIndex of [0, 1]) {
+      let calls = 0;
+      globalThis.fetch = async () => {
+        const index = calls++;
+        if (index === failingIndex) return new Response("PRIVATE_UPSTREAM_ERROR", { status: 503 });
+        const answer = index === 0 ? { ...reading, shensha: undefined } : reading.shensha;
+        return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] });
+      };
+      const response = await POST(request({ date: input.date, time: input.time }));
+      assert.equal(calls, 2);
+      assert.equal(response.status, 502);
+      const payload = await response.json();
+      assert.equal("reading" in payload, false);
+      assert.equal("accountSave" in payload, false);
+      assert.doesNotMatch(JSON.stringify(payload), /PRIVATE_UPSTREAM_ERROR/);
+    }
   } finally {
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.GEMINI_API_KEY;

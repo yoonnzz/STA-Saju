@@ -1,4 +1,6 @@
 import lunar from "lunar-javascript";
+import { calculateShensha, type ShenshaResult } from "./shensha";
+import { calculateStructure, type SajuStructure } from "./structure";
 
 const { Solar } = lunar;
 
@@ -30,6 +32,8 @@ export type SajuChart = {
   engine: string;
   elementMethod: string;
   fortune?: Fortune;
+  shensha?: ShenshaResult;
+  structure?: SajuStructure;
 };
 
 export type Fortune = {
@@ -244,7 +248,7 @@ export function calculate(raw: SajuInput, referenceYear = new Date().getFullYear
     ganZhi: item.getGanZhi(),
   }));
 
-  return {
+  const chart: SajuChart = {
     pillars,
     elements,
     dayMaster: {
@@ -272,4 +276,7 @@ export function calculate(raw: SajuInput, referenceYear = new Date().getFullYear
         "대한민국 출생·한국 표준시, lunar-javascript의 분 단위 절기 방식(sect 2)으로 계산했습니다. 월운의 달은 절기 기준입니다.",
     },
   };
+  chart.shensha = calculateShensha(chart, input.gender);
+  chart.structure = calculateStructure(chart);
+  return chart;
 }

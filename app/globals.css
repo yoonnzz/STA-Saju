@@ -520,6 +520,75 @@ summary:focus-visible {
   font-size: 14px;
 }
 
+.shensha-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.shensha-card {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fffdf7;
+}
+
+.shensha-card h4,
+.shensha-card h5,
+.shensha-card p {
+  margin-top: 0;
+}
+
+.shensha-card p + p {
+  margin-top: 10px;
+}
+
+.shensha-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shensha-heading span {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #e8f2ed;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rule-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.structure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 24px;
+}
+
+.structure-grid article {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fffdf7;
+}
+
+.structure-grid h4,
+.structure-grid p {
+  margin-top: 0;
+}
+
+.structure-grid p + p {
+  margin-top: 9px;
+}
+
 @media (max-width: 520px) {
   body {
     padding: 16px;
@@ -564,7 +633,9 @@ summary:focus-visible {
   }
 
   .year-flow-grid,
-  .month-flow-grid {
+  .month-flow-grid,
+  .shensha-grid,
+  .structure-grid {
     grid-template-columns: 1fr;
   }
 }

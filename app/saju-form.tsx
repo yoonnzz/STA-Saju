@@ -418,8 +418,9 @@ export default function SajuForm() {
               {!geminiReading && (
                 <>
                   <p>
-                    나 자신, 일과 돈, 사랑과 관계, 대운·세운·월운을 어린이도 이해할
-                    쉬운 말과 생활 속 예시로 깊게 풀어드립니다.
+                    나 자신, 일과 돈, 사랑과 관계, 대운·세운·월운을 20~30대의
+                    일과 관계, 독립과 돈 관리 상황에 맞춰 깊게 풀어드립니다. 어려운
+                    사주 용어는 바로 다음 문장에서 일상적인 뜻으로 설명합니다.
                     해석을 요청하면 <strong>계산된 사주 자료만 Gemini에 전달</strong>됩니다.
                     원본 생년월일, 출생시간과 성별은 Gemini에 보내지 않습니다.
                   </p>
@@ -457,9 +458,12 @@ export default function SajuForm() {
                     {geminiReading.lifeFlow && (
                       <LifeFlowDetail section={geminiReading.lifeFlow} evidence={evidence} />
                     )}
+                    {geminiReading.shensha && (
+                      <ShenshaReadingDetail section={geminiReading.shensha} chart={chart} />
+                    )}
                     {geminiReading.finalAdvice && (
                       <section className="deep-category final-advice">
-                        <h4>5. 전체 실천 조언</h4>
+                        <h4>6. 전체 실천 조언</h4>
                         <p>{geminiReading.finalAdvice.summary}</p>
                         <ol>
                           {geminiReading.finalAdvice.actions.map((action, index) => (
@@ -554,9 +558,137 @@ export default function SajuForm() {
                   </div>
                 </details>
               )}
+
+              {chart.structure && <StructureDetail structure={chart.structure} />}
+
+              {chart.shensha && (
+                <details open>
+                  <summary>내 사주의 살과 귀인</summary>
+                  <div className="detail-content shensha-local">
+                    <p>
+                      <strong>계산에서 확인한 사실</strong> — 서비스 규칙집 {chart.shensha.checkedCount}개를 모두 검사해 {chart.shensha.matched.length}개를 찾았습니다.
+                    </p>
+                    <p className="note">
+                      살과 귀인은 사주 전체를 보조해서 읽는 전통적 상징입니다. 이름만으로 좋은 일이나 나쁜 일을 확정하지 않습니다.
+                    </p>
+                    {chart.shensha.matched.length === 0 ? (
+                      <p>이 규칙집에서는 발견된 살·귀인이 없습니다.</p>
+                    ) : (
+                      <div className="shensha-grid">
+                        {chart.shensha.matched.map((item) => (
+                          <article className="shensha-card" key={item.ruleId}>
+                            <div className="shensha-heading">
+                              <h4>{item.name}</h4>
+                              <span>{item.polarity === "helper" ? "도움 상징" : item.polarity === "caution" ? "주의 상징" : "혼합 상징"}</span>
+                            </div>
+                            {item.hits.map((hit, index) => (
+                              <p key={`${item.ruleId}-${index}`}><strong>계산 근거</strong> — {hit.via} · {hit.pillars.join("·")}주</p>
+                            ))}
+                            <p><strong>현재 시기</strong> — {formatShenshaTiming(item)}</p>
+                            {item.sourceStatus !== "cross_checked" && (
+                              <p className="rule-note">이 항목은 계산법 차이가 있어 이 서비스가 선택한 규칙으로 계산했습니다.</p>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
             </div>
           </section>
         )}
+      </div>
+    </section>
+  );
+}
+
+const TEN_GOD_MEANINGS: Record<string, string> = {
+  비견: "나와 비슷한 방식으로 주도하고 경쟁하는 힘",
+  겁재: "사람들과 자원과 기회를 나누거나 경쟁하는 방식",
+  식신: "경험과 능력을 꾸준히 결과로 만드는 방식",
+  상관: "기존 기준을 질문하고 자신의 생각을 표현하는 방식",
+  편재: "움직이는 기회와 여러 자원을 빠르게 다루는 방식",
+  정재: "현실적인 자원과 돈을 계획적으로 관리하는 방식",
+  편관: "압박과 도전 속에서 결단하고 버티는 방식",
+  정관: "기준과 책임, 역할을 의식하며 움직이는 방식",
+  편인: "익숙하지 않은 관점과 직감으로 정보를 받아들이는 방식",
+  정인: "배움과 보호, 충분한 근거를 통해 안정감을 얻는 방식",
+};
+
+function StructureDetail({ structure }: { structure: NonNullable<SajuChart["structure"]> }) {
+  const usedTenGods = [...new Set(structure.tenGods.flatMap((item) => [
+    ...(item.stemTenGod === "일간" ? [] : [item.stemTenGod]),
+    ...item.hidden.map((hidden) => hidden.tenGod),
+  ]))];
+  return (
+    <details open>
+      <summary>내 사주의 구조</summary>
+      <div className="detail-content structure-detail">
+        <p><strong>태어난 계절</strong> — 월지 {structure.season.monthBranch}를 기준으로 {structure.season.name}, 중심 오행은 {structure.season.centralElement}입니다.</p>
+        <div className="structure-grid">
+          {structure.tenGods.map((item) => (
+            <article key={item.pillar}>
+              <h4>{item.pillar}</h4>
+              <p><strong>겉으로 보이는 천간</strong> — {item.stem} · {item.stemTenGod}</p>
+              <p><strong>지장간</strong> — {item.hidden.map((hidden) => `${hidden.stem} ${hidden.tenGod}(${hidden.role})`).join(" · ")}</p>
+            </article>
+          ))}
+        </div>
+        <h4>십성 쉽게 읽기</h4>
+        <dl className="term-list">
+          {usedTenGods.map((name) => <div key={name}><dt>{name}</dt><dd>{TEN_GOD_MEANINGS[name]}</dd></div>)}
+        </dl>
+        <h4>글자 사이의 관계</h4>
+        {structure.relations.length ? (
+          <ul>{structure.relations.map((relation, index) => <li key={`${relation.kind}-${index}`}>{relation.pillars.join("·")}의 {relation.characters.join("·")} — {relation.kind}</li>)}</ul>
+        ) : <p>네 기둥 안에서 이번 기준에 해당하는 합·충·형·파·해가 없습니다.</p>}
+        <h4>오행 참고 점수</h4>
+        <p>{Object.entries(structure.elementScores).map(([name, score]) => `${name} ${score}`).join(" · ")}</p>
+        <p className="note">{structure.method}</p>
+      </div>
+    </details>
+  );
+}
+
+function formatShenshaTiming(item: NonNullable<SajuChart["shensha"]>["matched"][number]) {
+  const periods = [
+    item.timing.currentDecade.length ? "현재 대운" : "",
+    item.timing.currentYear.length ? "올해" : "",
+    item.timing.nextYear.length ? "내년" : "",
+  ].filter(Boolean);
+  return periods.length
+    ? `${periods.join("·")}에 같은 조건이 다시 나타납니다.`
+    : "현재 대운·올해·내년에는 같은 조건이 따로 나타나지 않습니다.";
+}
+
+function ShenshaReadingDetail({
+  section,
+  chart,
+}: {
+  section: NonNullable<GeminiReading["shensha"]>;
+  chart: SajuChart;
+}) {
+  return (
+    <section className="deep-category shensha-reading">
+      <h4>5. 내 사주의 살과 귀인</h4>
+      <p>{section.overview}</p>
+      <div className="shensha-grid">
+        {section.items.map((item) => {
+          const calculated = chart.shensha?.matched.find((match) => match.ruleId === item.ruleId);
+          return (
+            <article className="shensha-card" key={item.ruleId}>
+              <h5>{item.name}</h5>
+              <p>{item.easyMeaning}</p>
+              <p><strong>좋은 방향으로 나타날 때</strong> — {item.positiveConditions}</p>
+              <p><strong>어렵게 나타날 때</strong> — {item.challengingConditions}</p>
+              <p className="ai-example"><strong>예를 들면</strong> — {item.lifeExample}</p>
+              <p><strong>해볼 일</strong> — {item.action}</p>
+              <p><strong>현재 시기</strong> — {item.timingNote}</p>
+              {calculated && <p className="rule-note"><strong>계산 근거</strong> — {calculated.hits.map((hit) => hit.via).join(" · ")}</p>}
+            </article>
+          );
+        })}
       </div>
     </section>
   );

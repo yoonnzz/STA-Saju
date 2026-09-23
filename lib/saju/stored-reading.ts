@@ -1,5 +1,7 @@
 import { CALCULATION, type SajuChart } from "./chart";
 import { validateGeminiReading, type GeminiReading } from "./interpretation";
+import { SHENSHA_CATALOG_VERSION, SHENSHA_RULES } from "./shensha";
+import { TEN_GOD_NAMES } from "./structure";
 
 export const STORED_READING_KEY = "saju-reading-v1";
 
@@ -53,6 +55,44 @@ function validChart(value: unknown): value is SajuChart {
       typeof fortune.method !== "string"
     ) return false;
   }
+  if (chart.shensha !== undefined) {
+    const ids = new Set(SHENSHA_RULES.map((rule) => rule.id));
+    const result = chart.shensha;
+    if (
+      result.catalogVersion !== SHENSHA_CATALOG_VERSION ||
+      result.checkedCount !== SHENSHA_RULES.length ||
+      !Array.isArray(result.matched) ||
+      new Set(result.matched.map((item) => item.ruleId)).size !== result.matched.length ||
+      !result.matched.every((item) =>
+        ids.has(item.ruleId) &&
+        typeof item.name === "string" &&
+        ["helper", "caution", "mixed"].includes(item.polarity) &&
+        ["cross_checked", "method_difference", "partial"].includes(item.sourceStatus) &&
+        Array.isArray(item.hits) && item.hits.length > 0 &&
+        item.hits.every((hit) => Array.isArray(hit.pillars) && typeof hit.via === "string") &&
+        item.timing &&
+        [item.timing.currentDecade, item.timing.currentYear, item.timing.nextYear]
+          .every((hits) => Array.isArray(hits) && hits.every((hit) => Array.isArray(hit.pillars) && typeof hit.via === "string"))
+      )
+    ) return false;
+  }
+  if (chart.structure !== undefined) {
+    const structure = chart.structure;
+    const allowedTenGods = new Set<string>([...TEN_GOD_NAMES, "일간"]);
+    if (
+      !Array.isArray(structure.tenGods) || structure.tenGods.length !== 4 ||
+      !structure.tenGods.every((item) =>
+        typeof item.pillar === "string" && typeof item.stem === "string" &&
+        allowedTenGods.has(item.stemTenGod) && Array.isArray(item.hidden) &&
+        item.hidden.every((hidden) => typeof hidden.stem === "string" && TEN_GOD_NAMES.includes(hidden.tenGod) && typeof hidden.role === "string")
+      ) ||
+      !Array.isArray(structure.relations) ||
+      !structure.relations.every((item) => Array.isArray(item.pillars) && item.pillars.length === 2 && Array.isArray(item.characters) && item.characters.length === 2) ||
+      !structure.season || typeof structure.season.name !== "string" || typeof structure.season.centralElement !== "string" ||
+      !structure.elementScores || !Object.values(structure.elementScores).every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0) ||
+      typeof structure.method !== "string"
+    ) return false;
+  }
   return true;
 }
 
@@ -72,7 +112,7 @@ export function parseStoredReading(raw: string | null): StoredReading | null {
       version: 1,
       createdAt: record.createdAt,
       chart: record.chart,
-      reading: validateGeminiReading(record.reading, true),
+      reading: validateGeminiReading(record.reading, true, record.chart),
     };
   } catch {
     return null;

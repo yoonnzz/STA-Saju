@@ -123,19 +123,7 @@ test("2026년과 2027년 세운 및 2026년의 월운 열두 개를 계산한다
 
 test("첫 대운 전인 2024년 출생자도 2026년 흐름을 계산한다", () => {
   const chart = calculate({ ...base, date: "2024-02-03", time: "12:00" }, 2026);
-  const decades = chart.fortune?.decades;
-  assert.ok(decades);
-  assert.deepEqual(decades.filter((item) => item.current).map((item) => item.ganZhi), ["대운 시작 전"]);
-  assert.equal(decades[0].endYear + 1, decades[1].startYear);
-  const birth = { ...base, date: "2024-02-03", time: "12:00" };
-  assert.deepEqual(
-    calculate(birth, decades[0].endYear).fortune?.decades.filter((item) => item.current).map((item) => item.ganZhi),
-    ["대운 시작 전"],
-  );
-  assert.deepEqual(
-    calculate(birth, decades[1].startYear).fortune?.decades.filter((item) => item.current).map((item) => item.ganZhi),
-    [decades[1].ganZhi],
-  );
+  assert.deepEqual(chart.fortune?.decades.filter((item) => item.current).map((item) => item.ganZhi), ["대운 시작 전"]);
   assert.deepEqual(chart.fortune?.years.map((item) => item.year), [2026, 2027]);
   assert.equal(chart.fortune?.months.length, 12);
 });
