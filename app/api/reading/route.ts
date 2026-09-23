@@ -83,12 +83,8 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           contents: [{ parts: [{ text: makeGeminiPrompt(chart) }] }],
           generationConfig: {
-            responseFormat: {
-              text: {
-                mimeType: "application/json",
-                schema: GEMINI_RESPONSE_SCHEMA,
-              },
-            },
+            responseMimeType: "application/json",
+            responseSchema: GEMINI_RESPONSE_SCHEMA,
           },
         }),
         cache: "no-store",

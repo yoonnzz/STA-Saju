@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { calculate } from "../lib/saju/chart";
 import {
+  GEMINI_RESPONSE_SCHEMA,
   makeGeminiPrompt,
   validateGeminiReading,
   type GeminiReading,
@@ -50,6 +51,7 @@ const topics = Array.from({ length: 6 }, (_, index) => ({
 const period = {
   label: "현재 시기의 참고 주제",
   interpretation: "계산된 흐름을 삶을 돌아보는 자료로 읽습니다.",
+  example: "새 취미를 정하기 전에 관심사를 적어 보는 상황입니다.",
   opportunity: "새로운 시도를 선택해 볼 수 있습니다.",
   caution: "결과를 미리 정해 놓고 판단하지 않습니다.",
   action: "작은 계획을 하나 적어 봅니다.",
@@ -83,7 +85,9 @@ function request(body: unknown): Request {
   return new Request("http://localhost:3000/api/reading", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body && typeof body === "object" && !Array.isArray(body)
+      ? { gender: "male", ...body }
+      : body),
   });
 }
 
@@ -149,8 +153,10 @@ test("Gemini 프롬프트에는 계산 근거가 있고 원본 출생 일시가 
   assert.match(prompt, /계산 근거/);
   assert.match(prompt, new RegExp(chart.dayMaster.korean));
   assert.match(prompt, /초등학생도 이해할 수/);
-  assert.match(prompt, /가상 상황 하나/);
+  assert.match(prompt, /가상 상황/);
+  assert.match(prompt, /시기 계산/);
   assert.doesNotMatch(prompt, /2005-12-23|08:37/);
+  assert.doesNotMatch(prompt, /"gender"|"male"|"female"/);
 });
 
 test("최근 정상 결과만 저장 데이터로 읽고 깨진 데이터와 다른 버전은 거부한다", () => {
@@ -164,15 +170,15 @@ test("최근 정상 결과만 저장 데이터로 읽고 깨진 데이터와 다
 
 test("예시가 없던 이전 버전의 정상 저장 결과도 계속 읽는다", () => {
   const legacyReading = {
-    ...reading,
-    personality: { ...reading.personality, example: undefined },
-    career: { ...reading.career, example: undefined },
-    relationships: { ...reading.relationships, example: undefined },
+    ...shortReading,
+    personality: { ...shortReading.personality, example: undefined },
+    career: { ...shortReading.career, example: undefined },
+    relationships: { ...shortReading.relationships, example: undefined },
   };
   const stored = {
     version: 1,
     createdAt: "2026-09-23T00:00:00.000Z",
-    chart,
+    chart: { ...chart, fortune: undefined },
     reading: legacyReading,
   };
   const parsed = parseStoredReading(JSON.stringify(stored));
@@ -199,6 +205,23 @@ test("잘못된 출생 입력은 Gemini를 호출하지 않는다", async () => 
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = oldKey;
+  }
+});
+
+test("성별을 선택하지 않으면 Gemini를 호출하지 않는다", async () => {
+  const oldFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error("must not call Gemini");
+  };
+  try {
+    const response = await POST(request({ date: input.date, time: input.time, gender: undefined }));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /성별/);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = oldFetch;
   }
 });
 
@@ -264,9 +287,13 @@ test("서버는 지정 모델에 키 헤더와 계산 결과만 보내고 구조
     assert.equal(response.status, 200);
     assert.match(url, /models\/gemini-3\.5-flash-lite:generateContent$/);
     assert.equal((options?.headers as Record<string, string>)["x-goog-api-key"], "unit-test-key");
-    const sent = JSON.stringify(JSON.parse(String(options?.body)));
+    const sentBody = JSON.parse(String(options?.body));
+    const sent = JSON.stringify(sentBody);
     assert.match(sent, /계산 근거/);
-    assert.doesNotMatch(sent, /2005-12-23|08:37|unit-test-key/);
+    assert.doesNotMatch(sent, /2005-12-23|08:37|unit-test-key|"gender"|"male"/);
+    assert.equal(sentBody.generationConfig.responseMimeType, "application/json");
+    assert.deepEqual(sentBody.generationConfig.responseSchema, GEMINI_RESPONSE_SCHEMA);
+    assert.equal("responseFormat" in sentBody.generationConfig, false);
     const result = await response.json();
     assert.deepEqual(result.chart, chart);
     assert.deepEqual(result.reading, reading);

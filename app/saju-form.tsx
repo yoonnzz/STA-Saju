@@ -421,7 +421,7 @@ export default function SajuForm() {
                     나 자신, 일과 돈, 사랑과 관계, 대운·세운·월운을 어린이도 이해할
                     쉬운 말과 생활 속 예시로 깊게 풀어드립니다.
                     해석을 요청하면 <strong>계산된 사주 자료만 Gemini에 전달</strong>됩니다.
-                    원본 생년월일과 출생시간은 Gemini에 보내지 않습니다.
+                    원본 생년월일, 출생시간과 성별은 Gemini에 보내지 않습니다.
                   </p>
                   {input && (
                     <button
@@ -545,7 +545,7 @@ export default function SajuForm() {
                       <strong>대운 시작까지</strong> — 약 {chart.fortune.start.year}년 {chart.fortune.start.month}개월 {chart.fortune.start.day}일
                     </p>
                     <p>
-                      <strong>현재 10년 흐름</strong> — {chart.fortune.decades.find((item) => item.current)?.ganZhi} 대운
+                      <strong>현재 10년 흐름</strong> — {chart.fortune.decades.find((item) => item.current)?.ganZhi}
                     </p>
                     <p>
                       <strong>올해와 내년</strong> — {chart.fortune.years.map((item) => `${item.year}년 ${item.ganZhi}`).join(" · ")}

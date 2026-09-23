@@ -217,9 +217,8 @@ export function calculate(raw: SajuInput, referenceYear = new Date().getFullYear
   const yun = terms.getYun(input.gender === "male" ? 1 : 0, 2);
   const allDaYun = yun.getDaYun(12);
   const decades = allDaYun
-    .filter((item) => item.getIndex() > 0)
     .map((item) => ({
-      ganZhi: item.getGanZhi(),
+      ganZhi: item.getIndex() === 0 ? "대운 시작 전" : item.getGanZhi(),
       startYear: item.getStartYear(),
       endYear: item.getEndYear(),
       startAge: item.getStartAge(),

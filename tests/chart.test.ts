@@ -24,13 +24,13 @@ for (const [date, time, expected] of [
 
 test("한국 시각의 입춘 경계에서 년주와 월주가 바뀐다", () => {
   assert.deepEqual(
-    calculate({ ...base, date: "2024-02-04", time: "17:26" })
+    calculate({ ...base, date: "2024-02-04", time: "17:26" }, 2035)
       .pillars.slice(0, 2)
       .map((item) => item.text),
     ["癸卯", "乙丑"],
   );
   assert.deepEqual(
-    calculate({ ...base, date: "2024-02-04", time: "17:28" })
+    calculate({ ...base, date: "2024-02-04", time: "17:28" }, 2035)
       .pillars.slice(0, 2)
       .map((item) => item.text),
     ["甲辰", "丙寅"],
@@ -77,7 +77,7 @@ test("일주를 한글 간지로 표시할 수 있다", () => {
     ...base,
     date: "2024-02-03",
     time: "12:00",
-  });
+  }, 2035);
   assert.equal(chart.pillars[2].text, "丁酉");
   assert.equal(chart.pillars[2].korean, "정유");
   assert.equal(
@@ -119,4 +119,23 @@ test("2026년과 2027년 세운 및 2026년의 월운 열두 개를 계산한다
   assert.deepEqual(fortune.months.map((item) => item.month), Array.from({ length: 12 }, (_, index) => index + 1));
   assert.ok(fortune.months.every((item) => item.ganZhi.length === 2));
   assert.match(fortune.method, /절기 기준/);
+});
+
+test("첫 대운 전인 2024년 출생자도 2026년 흐름을 계산한다", () => {
+  const chart = calculate({ ...base, date: "2024-02-03", time: "12:00" }, 2026);
+  const decades = chart.fortune?.decades;
+  assert.ok(decades);
+  assert.deepEqual(decades.filter((item) => item.current).map((item) => item.ganZhi), ["대운 시작 전"]);
+  assert.equal(decades[0].endYear + 1, decades[1].startYear);
+  const birth = { ...base, date: "2024-02-03", time: "12:00" };
+  assert.deepEqual(
+    calculate(birth, decades[0].endYear).fortune?.decades.filter((item) => item.current).map((item) => item.ganZhi),
+    ["대운 시작 전"],
+  );
+  assert.deepEqual(
+    calculate(birth, decades[1].startYear).fortune?.decades.filter((item) => item.current).map((item) => item.ganZhi),
+    [decades[1].ganZhi],
+  );
+  assert.deepEqual(chart.fortune?.years.map((item) => item.year), [2026, 2027]);
+  assert.equal(chart.fortune?.months.length, 12);
 });
