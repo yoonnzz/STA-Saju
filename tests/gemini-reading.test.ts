@@ -7,6 +7,7 @@ import {
   makeShenshaPrompt,
   makeShenshaResponseSchema,
   validateGeminiReading,
+  validateShenshaReading,
   type GeminiReading,
 } from "../lib/saju/interpretation";
 import { parseStoredReading } from "../lib/saju/stored-reading";
@@ -114,6 +115,9 @@ test("구조화된 세 항목과 계산 근거를 갖춘 해석을 허용한다"
 test("계산된 살·귀인 전체와 정확히 같은 ID·이름·근거만 허용한다", () => {
   const items = reading.shensha!.items;
   assert.equal(items.length, chart.shensha!.matched.length);
+  assert.deepEqual(validateShenshaReading(reading.shensha, chart), reading.shensha);
+  assert.throws(() => validateShenshaReading({ ...reading.shensha, items: items.slice(1) }, chart), /mismatched shensha ids/);
+  assert.throws(() => validateShenshaReading({ ...reading.shensha, items: [...items, items[0]] }, chart), /mismatched shensha ids/);
   assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: items.slice(1) } }, false, chart));
   assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [...items, items[0]] } }, false, chart));
   assert.throws(() => validateGeminiReading({ ...reading, shensha: { ...reading.shensha, items: [{ ...items[0], ruleId: "invented_rule", evidenceRuleIds: ["invented_rule"] }, ...items.slice(1)] } }, false, chart));
@@ -134,6 +138,29 @@ test("새 깊은 해석은 세 카테고리와 2026·2027년, 열두 달, 실천
   assert.equal(reading.finalAdvice?.actions.length, 3);
   assert.throws(() => validateGeminiReading({ ...reading, lifeFlow: undefined }, false, chart));
   assert.throws(() => validateGeminiReading({ ...reading, finalAdvice: undefined }, false, chart));
+});
+
+test("짧은 월운 문구와 실천 조언은 허용하고 빈 문구는 거부한다", () => {
+  const flow = reading.lifeFlow!;
+  const finalAdvice = reading.finalAdvice!;
+  const shortMonth = { ...flow.months[0], theme: "잠시 쉬어요", advice: "하나 적어요" };
+  const shortReading = {
+    ...reading,
+    lifeFlow: { ...flow, months: [shortMonth, ...flow.months.slice(1)] },
+    finalAdvice: { ...finalAdvice, actions: ["잠시 쉬어요", ...finalAdvice.actions.slice(1)] },
+  };
+  assert.deepEqual(validateGeminiReading(shortReading, false, chart), shortReading);
+
+  for (const field of ["theme", "advice"] as const) {
+    assert.throws(() => validateGeminiReading({
+      ...shortReading,
+      lifeFlow: { ...shortReading.lifeFlow, months: [{ ...shortMonth, [field]: "" }, ...flow.months.slice(1)] },
+    }, false, chart));
+  }
+  assert.throws(() => validateGeminiReading({
+    ...shortReading,
+    finalAdvice: { ...shortReading.finalAdvice, actions: ["", ...finalAdvice.actions.slice(1)] },
+  }, false, chart));
 });
 
 test("누락·중복 월운과 기준 연도가 다른 세운을 거부한다", () => {
@@ -337,8 +364,8 @@ test("서버는 지정 모델에 키 헤더와 계산 결과만 보내고 구조
     assert.equal(shenshaBody.generationConfig.responseMimeType, "application/json");
     assert.deepEqual(baseBody.generationConfig.responseSchema, GEMINI_RESPONSE_SCHEMA);
     assert.deepEqual(shenshaBody.generationConfig.responseSchema, makeShenshaResponseSchema(chart));
-    assert.equal(shenshaBody.generationConfig.responseSchema.properties.items.minItems, chart.shensha!.matched.length);
-    assert.equal(shenshaBody.generationConfig.responseSchema.properties.items.maxItems, chart.shensha!.matched.length);
+    assert.equal("minItems" in shenshaBody.generationConfig.responseSchema.properties.items, false);
+    assert.equal("maxItems" in shenshaBody.generationConfig.responseSchema.properties.items, false);
     assert.deepEqual(
       shenshaBody.generationConfig.responseSchema.properties.items.items.properties.ruleId.enum,
       chart.shensha!.matched.map((item) => item.ruleId),

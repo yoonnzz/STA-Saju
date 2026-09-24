@@ -93,7 +93,7 @@ function text(value: unknown, max = 600, min = 8): string {
   if (typeof value !== "string") throw new Error("invalid reading text");
   const trimmed = value.trim();
   if (trimmed.length < min || trimmed.length > max) {
-    throw new Error("invalid reading length");
+    throw new Error(`invalid reading length: ${trimmed.length}, expected ${min}-${max}`);
   }
   return trimmed;
 }
@@ -193,8 +193,8 @@ function lifeFlow(value: unknown, chart?: SajuChart): LifeFlowReading {
     }
     return {
       month,
-      theme: text((item as Record<string, unknown>).theme, 240),
-      advice: text((item as Record<string, unknown>).advice, 240),
+      theme: text((item as Record<string, unknown>).theme, 240, 2),
+      advice: text((item as Record<string, unknown>).advice, 240, 2),
     };
   });
   if (new Set(months.map((item) => item.month)).size !== 12) {
@@ -284,7 +284,7 @@ export function validateGeminiReading(
       : { shensha: validateShenshaReading(data.shensha, chart) }),
     finalAdvice: {
       summary: text(final.summary, 500),
-      actions: final.actions.map((item) => text(item, 240)),
+      actions: final.actions.map((item) => text(item, 240, 2)),
     },
   };
 }
@@ -415,15 +415,12 @@ export const GEMINI_RESPONSE_SCHEMA = {
 };
 
 export function makeShenshaResponseSchema(chart: SajuChart) {
-  const count = chart.shensha?.matched.length || 0;
   return {
     type: "object",
     properties: {
       overview: { type: "string" },
       items: {
         type: "array",
-        minItems: count,
-        maxItems: count,
         items: {
           ...shenshaItemSchema,
           properties: {
