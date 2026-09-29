@@ -89,11 +89,11 @@ export function evidenceLabels(chart: SajuChart): Record<EvidenceKey, string> {
   };
 }
 
-function text(value: unknown, max = 600, min = 8): string {
-  if (typeof value !== "string") throw new Error("invalid reading text");
+function text(value: unknown, max = 600, min = 6, field = "reading"): string {
+  if (typeof value !== "string") throw new Error(`invalid ${field} text`);
   const trimmed = value.trim();
   if (trimmed.length < min || trimmed.length > max) {
-    throw new Error(`invalid reading length: ${trimmed.length}, expected ${min}-${max}`);
+    throw new Error(`invalid ${field} length (${trimmed.length}, allowed ${min}-${max})`);
   }
   return trimmed;
 }
@@ -193,8 +193,8 @@ function lifeFlow(value: unknown, chart?: SajuChart): LifeFlowReading {
     }
     return {
       month,
-      theme: text((item as Record<string, unknown>).theme, 240, 2),
-      advice: text((item as Record<string, unknown>).advice, 240, 2),
+      theme: text((item as Record<string, unknown>).theme, 240),
+      advice: text((item as Record<string, unknown>).advice, 240),
     };
   });
   if (new Set(months.map((item) => item.month)).size !== 12) {
@@ -220,19 +220,19 @@ export function validateShenshaReading(value: unknown, chart?: SajuChart): NonNu
       throw new Error("invalid shensha item");
     }
     const item = value as Record<string, unknown>;
-    const ruleId = text(item.ruleId, 80, 2);
+    const ruleId = text(item.ruleId, 80, 2, "shensha ruleId");
     if (!Array.isArray(item.evidenceRuleIds) || item.evidenceRuleIds.length !== 1 || item.evidenceRuleIds[0] !== ruleId) {
       throw new Error("invalid shensha evidence ids");
     }
     return {
       ruleId,
-      name: text(item.name, 80, 1),
-      easyMeaning: text(item.easyMeaning, 400),
-      positiveConditions: text(item.positiveConditions, 500),
-      challengingConditions: text(item.challengingConditions, 500),
-      lifeExample: text(item.lifeExample, 500),
-      action: text(item.action, 300),
-      timingNote: text(item.timingNote, 400),
+      name: text(item.name, 80, 1, "shensha name"),
+      easyMeaning: text(item.easyMeaning, 400, 6, "shensha easyMeaning"),
+      positiveConditions: text(item.positiveConditions, 500, 6, "shensha positiveConditions"),
+      challengingConditions: text(item.challengingConditions, 500, 6, "shensha challengingConditions"),
+      lifeExample: text(item.lifeExample, 500, 6, "shensha lifeExample"),
+      action: text(item.action, 300, 6, "shensha action"),
+      timingNote: text(item.timingNote, 400, 6, "shensha timingNote"),
       evidenceRuleIds: [ruleId],
     };
   });
@@ -247,7 +247,7 @@ export function validateShenshaReading(value: unknown, chart?: SajuChart): NonNu
       if (!calculated || calculated.name !== item.name) throw new Error("mismatched shensha name");
     }
   }
-  return { overview: text(data.overview, 600), items };
+  return { overview: text(data.overview, 600, 6, "shensha overview"), items };
 }
 
 export function validateGeminiReading(
@@ -284,7 +284,7 @@ export function validateGeminiReading(
       : { shensha: validateShenshaReading(data.shensha, chart) }),
     finalAdvice: {
       summary: text(final.summary, 500),
-      actions: final.actions.map((item) => text(item, 240, 2)),
+      actions: final.actions.map((item) => text(item, 240)),
     },
   };
 }
@@ -414,27 +414,14 @@ export const GEMINI_RESPONSE_SCHEMA = {
   required: ["summary", "personality", "career", "relationships", "lifeFlow", "finalAdvice"],
 };
 
-export function makeShenshaResponseSchema(chart: SajuChart) {
+export function makeShenshaResponseSchema() {
   return {
     type: "object",
     properties: {
       overview: { type: "string" },
       items: {
         type: "array",
-        items: {
-          ...shenshaItemSchema,
-          properties: {
-            ...shenshaItemSchema.properties,
-            ruleId: { type: "string", enum: chart.shensha?.matched.map((item) => item.ruleId) || [] },
-            name: { type: "string", enum: chart.shensha?.matched.map((item) => item.name) || [] },
-            evidenceRuleIds: {
-              type: "array",
-              minItems: 1,
-              maxItems: 1,
-              items: { type: "string", enum: chart.shensha?.matched.map((item) => item.ruleId) || [] },
-            },
-          },
-        },
+        items: shenshaItemSchema,
       },
     },
     required: ["overview", "items"],
@@ -446,6 +433,7 @@ export function makeGeminiPrompt(chart: SajuChart): string {
     "당신은 사주 계산기가 아니라 자기 이해에 관심 있는 20~30대를 위한 구체적인 한국어 설명 작성자입니다.",
     "아래 제공된 계산 결과만 사용해 JSON 스키마에 맞는 해석을 작성하세요.",
     "핵심 요약은 짧고 쉬운 2~3문장으로 작성하세요. personality는 나 자신, career는 일과 돈, relationships는 사랑과 관계를 뜻합니다.",
+    "JSON의 설명·예시·실천 문장은 각각 공백을 제외하고도 8자 이상인 완전한 한국어 문장으로 작성하세요. 짧은 단어 하나로 끝내지 마세요.",
     "사주 용어를 사용할 수 있지만, 용어가 처음 나온 바로 다음 문장에서 일상적인 뜻을 풀어 설명하세요. 전문적인 내용을 지나치게 귀엽거나 단순하게 말하지 마세요.",
     "personality topics에는 겉과 속, 의사결정, 감정 표현, 반복 동기, 스트레스 반응, 성장 과제를 넣으세요.",
     "career topics에는 일의 동기, 실행 방식, 전문성, 협업, 돈을 다루는 방식, 소진 조건을 넣으세요.",
@@ -470,6 +458,7 @@ export function makeShenshaPrompt(chart: SajuChart): string {
     "당신은 사주 계산기가 아니라 살과 귀인이라는 전통 상징을 자기 이해에 관심 있는 20~30대에게 설명하는 한국어 작성자입니다.",
     "아래 계산에서 발견된 모든 항목을 ruleId와 name 그대로 한 번씩 설명하세요. 새 항목을 추가하거나 하나라도 빼지 마세요.",
     "각 evidenceRuleIds에는 같은 항목의 ruleId 하나만 넣으세요.",
+    "JSON의 설명·예시·실천 문장은 각각 공백을 제외하고도 8자 이상인 완전한 한국어 문장으로 작성하세요. 짧은 단어 하나로 끝내지 마세요.",
     "사주 용어가 나오면 바로 다음 문장에서 일상적인 뜻을 풀어주세요. 각 항목에 좋은 방향으로 나타나는 환경과 행동, 어렵게 나타나는 환경과 행동, 직장·독립·연애·돈 관리 같은 가상 예시, 해볼 일과 현재 시기 설명을 적으세요.",
     "사고, 질병, 이별, 범죄, 재산 손실, 사망, 합격, 결혼을 예언하지 마세요. 성격이나 미래를 확정하지 말고 선택 가능한 행동으로 설명하세요.",
     `살·귀인 계산(JSON): ${JSON.stringify(chart.shensha?.matched.map((item) => ({ ruleId: item.ruleId, name: item.name, hits: item.hits, timing: item.timing, sourceStatus: item.sourceStatus })) || [])}`,
