@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "내 사주 쉽게 읽기",
-  description: "핵심부터 계산 근거까지 차근차근 읽는 사주 시제품",
+  description: "내 사주를 읽는 시간, 나를 이해하는 시작. 어려운 사주 용어는 쉽게, 해석의 근거는 분명하게 읽어보세요.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

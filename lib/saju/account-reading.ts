@@ -33,6 +33,13 @@ export function readingUpsert(record: StoredReading, userId: string) {
   };
 }
 
+export function selectAccountReading(remote: StoredReading | null, fallback: StoredReading | null) {
+  if (fallback && (!remote || Date.parse(fallback.createdAt) > Date.parse(remote.createdAt))) {
+    return { record: fallback, pendingSave: true } as const;
+  }
+  return remote ? ({ record: remote, pendingSave: false } as const) : null;
+}
+
 export function safeNextPath(value: string | null): string {
   if (
     !value ||

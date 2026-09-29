@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import {
   calculate,
@@ -19,12 +21,33 @@ import {
   STORED_READING_KEY,
   type StoredReading,
 } from "../lib/saju/stored-reading";
+import { selectAccountReading } from "../lib/saju/account-reading";
 import { hasSupabaseConfig } from "../lib/supabase/config";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
+import DailyFortunePanel from "./daily-fortune-panel";
+import { RESULT_CATEGORIES, type ResultCategory } from "../lib/saju/result-navigation";
+import ShareManager from "./share-manager";
 
 const ACCOUNT_FALLBACK_PREFIX = "saju-reading-account-v1:";
 
-export default function SajuForm() {
+function readAccountFallback(userId: string): StoredReading | null {
+  try {
+    return parseStoredReading(localStorage.getItem(`${ACCOUNT_FALLBACK_PREFIX}${userId}`));
+  } catch {
+    return null;
+  }
+}
+
+function clearAccountFallback(userId: string) {
+  try {
+    localStorage.removeItem(`${ACCOUNT_FALLBACK_PREFIX}${userId}`);
+  } catch {
+    // The database result remains available when browser storage is blocked.
+  }
+}
+
+export default function SajuForm({ view = "home", category }: { view?: "home" | "start" | "overview" | "category" | "today"; category?: ResultCategory }) {
+  const router = useRouter();
   const [chart, setChart] = useState<SajuChart | null>(null);
   const [error, setError] = useState("");
   const [input, setInput] = useState<{
@@ -48,6 +71,10 @@ export default function SajuForm() {
   const previousUserId = useRef<string | null>(null);
   const reading = chart ? createReading(chart) : null;
   const evidence = chart ? evidenceLabels(chart) : null;
+
+  useEffect(() => {
+    if (view === "home" && geminiReading) router.replace("/result");
+  }, [view, geminiReading, router]);
 
   useEffect(() => {
     try {
@@ -96,6 +123,12 @@ export default function SajuForm() {
     const oldUserId = previousUserId.current;
     previousUserId.current = user?.id ?? null;
     if (user) {
+      if (oldUserId && oldUserId !== user.id) {
+        setChart(null);
+        setGeminiReading(null);
+        setResultSource(null);
+        setPendingAccountRecord(null);
+      }
       void loadAccountReading(user.id);
       return;
     }
@@ -122,13 +155,18 @@ export default function SajuForm() {
         : null;
       if (result?.reading && !record) throw new Error("저장된 결과의 형식을 읽을 수 없습니다.");
       if (previousUserId.current !== userId) return;
-      if (record) {
-        setPendingAccountRecord(null);
-        setChart(record.chart);
-        setGeminiReading(record.reading);
+      const fallback = readAccountFallback(userId);
+      const selected = selectAccountReading(record, fallback);
+      if (selected) {
+        if (!selected.pendingSave && fallback) clearAccountFallback(userId);
+        setPendingAccountRecord(selected.pendingSave ? selected.record : null);
+        setChart(selected.record.chart);
+        setGeminiReading(selected.record.reading);
         setInput(null);
-        setResultSource("account");
-        setStorageMessage("내 계정에 저장된 최근 결과입니다.");
+        setResultSource(selected.pendingSave ? "local" : "account");
+        setStorageMessage(selected.pendingSave
+          ? "해석은 만들었지만 계정에 저장하지 못했습니다. 다시 시도해주세요."
+          : "내 계정에 저장된 최근 결과입니다.");
       } else {
         setStorageMessage(saved
           ? "계정에 저장된 결과가 없습니다. 아래 결과를 계정에 저장할 수 있습니다."
@@ -136,14 +174,13 @@ export default function SajuForm() {
       }
     } catch (caught) {
       if (previousUserId.current !== userId) return;
-      const fallback = parseStoredReading(
-        localStorage.getItem(`${ACCOUNT_FALLBACK_PREFIX}${userId}`),
-      );
+      const fallback = readAccountFallback(userId);
       if (fallback) {
         setChart(fallback.chart);
         setGeminiReading(fallback.reading);
         setInput(null);
-        setResultSource("account");
+        setResultSource("local");
+        setPendingAccountRecord(fallback);
       }
       setStorageMessage(caught instanceof Error
         ? caught.message
@@ -172,11 +209,14 @@ export default function SajuForm() {
     if (authBusy) return;
     setAuthBusy(true);
     setAuthError("");
-    const { error } = await createSupabaseBrowserClient().auth.signOut();
-    if (error) {
+    try {
+      const { error } = await createSupabaseBrowserClient().auth.signOut();
+      if (error) throw error;
+    } catch {
       setAuthError("로그아웃하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setAuthBusy(false);
     }
-    setAuthBusy(false);
   }
 
   async function saveLocalToAccount() {
@@ -194,7 +234,9 @@ export default function SajuForm() {
       if (!response.ok) throw new Error(result?.error || "계정에 저장하지 못했습니다.");
       setResultSource("account");
       setPendingAccountRecord(null);
+      clearAccountFallback(user.id);
       setStorageMessage("내 계정에 저장되었습니다.");
+      if (view === "start") router.push("/result");
     } catch (caught) {
       setStorageMessage(caught instanceof Error
         ? caught.message
@@ -281,7 +323,9 @@ export default function SajuForm() {
       if (result.accountSave === "saved") {
         setResultSource("account");
         setPendingAccountRecord(null);
+        if (user) clearAccountFallback(user.id);
         setStorageMessage("내 계정에 저장되었습니다.");
+        router.push("/result");
       } else if (user) {
         setResultSource("account");
         setPendingAccountRecord(record);
@@ -297,6 +341,7 @@ export default function SajuForm() {
           localStorage.setItem(STORED_READING_KEY, JSON.stringify(record));
           setSaved(record);
           setStorageMessage("");
+          router.push("/result");
         } catch {
           setStorageMessage("해석은 표시했지만 이 브라우저에 저장하지 못했습니다.");
         }
@@ -328,10 +373,11 @@ export default function SajuForm() {
     setInput(null);
     setError("");
     setAiError("");
+    if (view === "start") router.push("/result");
   }
 
   return (
-    <section className="input-card" aria-labelledby="input-title">
+    <section className="input-card" aria-label="내 사주">
       <section className="auth-panel" aria-label="계정">
         {authLoading ? (
           <p role="status">로그인 상태를 확인하고 있습니다…</p>
@@ -359,6 +405,18 @@ export default function SajuForm() {
         {authError && <p className="error" role="alert">{authError}</p>}
       </section>
 
+      {view === "today" && user && <DailyFortunePanel
+        key={`${user.id}:${resultSource === "account" ? chart?.pillars.map((pillar) => pillar.text).join("") : "none"}`}
+        userId={user.id}
+      />}
+
+      {view === "today" && !user && !authLoading && (
+        <p>오늘의 운세는 Google 로그인 후 볼 수 있습니다.</p>
+      )}
+
+      {view === "today" && <ResultMenu basePath="/result" showToday={Boolean(user)} active="today" />}
+
+      {(view === "home" || view === "start") && <>
       <h2 id="input-title">언제 태어나셨나요?</h2>
       <p className="form-intro">대한민국 출생 기준으로 양력 생년월일, 태어난 시간과 성별을 입력해주세요.</p>
       <form onSubmit={handleSubmit} noValidate>
@@ -389,11 +447,24 @@ export default function SajuForm() {
           {pendingAccountRecord ? "계정 저장 다시 시도" : "이 결과를 내 계정에 저장"}
         </button>
       )}
+      </>}
 
-      <div className="feedback" aria-live="polite">
+      {view !== "today" && view !== "home" && view !== "start" && storageMessage && <p className="storage-message">{storageMessage}</p>}
+      {view === "overview" && user && (pendingAccountRecord || (saved && resultSource === "local")) && (
+        <button className="restore-button" type="button" onClick={saveLocalToAccount} disabled={authBusy}>
+          {pendingAccountRecord ? "계정 저장 다시 시도" : "이 결과를 내 계정에 저장"}
+        </button>
+      )}
+      {view !== "today" && view !== "home" && view !== "start" && !chart && !authLoading && !storageMessage.includes("불러오고") && (
+        <div className="empty-result"><h2>아직 사주 결과가 없습니다</h2><p>먼저 사주를 입력하고 해석을 만들어주세요.</p><Link href="/start" className="link-button">내 사주 시작하기</Link></div>
+      )}
+
+      {view !== "today" && <div className="feedback" aria-live="polite">
         {error && <p className="error">{error}</p>}
-        {chart && (
+        {chart && (view === "home" || (view === "start" ? Boolean(input) : Boolean(geminiReading))) && (
           <section className="result" aria-labelledby="result-title">
+            {geminiReading && view !== "home" && view !== "start" && <ResultMenu basePath="/result" showToday={Boolean(user)} active={view === "overview" ? "overview" : category} />}
+            {(view === "home" || view === "start" || view === "overview") && (
             <div className="summary-card">
               <p className="result-label">
                 {geminiReading && !input
@@ -411,10 +482,11 @@ export default function SajuForm() {
                 미래를 단정할 수는 없습니다.
               </p>
             </div>
+            )}
 
             <section className="ai-panel" aria-labelledby="ai-title">
               <p className="result-label">사주를 더 깊게 읽기</p>
-              <h3 id="ai-title">Gemini 해석</h3>
+              <h3 id="ai-title">{view === "category" ? RESULT_CATEGORIES.find((item) => item.slug === category)?.label : "Gemini 해석"}</h3>
               {!geminiReading && (
                 <>
                   <p>
@@ -440,43 +512,17 @@ export default function SajuForm() {
               )}
               {geminiReading && evidence && (
                 <>
-                  <p className="ai-summary">{geminiReading.summary}</p>
-                  <p className="ai-note">
-                    아래 내용은 계산값을 바탕으로 작성한 해석입니다. 사실이나 미래를
-                    확정하는 설명은 아닙니다.
-                  </p>
-                  <div className="ai-details deep-reading">
-                    <AiDetail
-                      title="1. 나 자신"
-                      section={geminiReading.personality}
-                      evidence={evidence}
-                      strengths={geminiReading.personality.strengths}
-                      cautions={geminiReading.personality.cautions}
-                    />
-                    <AiDetail title="2. 일과 돈" section={geminiReading.career} evidence={evidence} />
-                    <AiDetail title="3. 사랑과 관계" section={geminiReading.relationships} evidence={evidence} />
-                    {geminiReading.lifeFlow && (
-                      <LifeFlowDetail section={geminiReading.lifeFlow} evidence={evidence} />
-                    )}
-                    {geminiReading.shensha && (
-                      <ShenshaReadingDetail section={geminiReading.shensha} chart={chart} />
-                    )}
-                    {geminiReading.finalAdvice && (
-                      <section className="deep-category final-advice">
-                        <h4>6. 전체 실천 조언</h4>
-                        <p>{geminiReading.finalAdvice.summary}</p>
-                        <ol>
-                          {geminiReading.finalAdvice.actions.map((action, index) => (
-                            <li key={`${action}-${index}`}>{action}</li>
-                          ))}
-                        </ol>
-                      </section>
-                    )}
-                  </div>
+                  {(view === "overview" || view === "home" || view === "start") ? (
+                    <ResultOverview geminiReading={geminiReading} basePath="/result" />
+                  ) : category && (
+                    <ReadingCategoryDetail category={category} chart={chart} geminiReading={geminiReading} />
+                  )}
+                  {view === "overview" && user && resultSource === "account" && !pendingAccountRecord && <ShareManager />}
                 </>
               )}
             </section>
 
+            {(view === "overview" || view === "home" || view === "start") &&
             <div className="detail-list">
               <h3>궁금한 내용을 펼쳐 보세요</h3>
               <details>
@@ -562,7 +608,7 @@ export default function SajuForm() {
               {chart.structure && <StructureDetail structure={chart.structure} />}
 
               {chart.shensha && (
-                <details open>
+                <details>
                   <summary>내 사주의 살과 귀인</summary>
                   <div className="detail-content shensha-local">
                     <p>
@@ -595,12 +641,83 @@ export default function SajuForm() {
                   </div>
                 </details>
               )}
-            </div>
+            </div>}
           </section>
         )}
-      </div>
+      </div>}
     </section>
   );
+}
+
+function ResultMenu({
+  basePath,
+  showToday = false,
+  active,
+}: {
+  basePath: string;
+  showToday?: boolean;
+  active?: ResultCategory | "overview" | "today";
+}) {
+  return (
+    <nav className="result-menu" aria-label="사주 결과 메뉴">
+      <Link href={basePath} aria-current={active === "overview" ? "page" : undefined}>결과 목차</Link>
+      {RESULT_CATEGORIES.map((item) => (
+        <Link key={item.slug} href={`${basePath}/${item.slug}`} aria-current={active === item.slug ? "page" : undefined}>{item.label}</Link>
+      ))}
+      {showToday && <Link href="/today" aria-current={active === "today" ? "page" : undefined}>오늘의 운세</Link>}
+    </nav>
+  );
+}
+
+function ResultOverview({ geminiReading, basePath }: { geminiReading: GeminiReading; basePath: string }) {
+  return <>
+    <p className="ai-summary">{geminiReading.summary}</p>
+    <p className="ai-note">아래 내용은 계산값을 바탕으로 작성한 해석이며 미래를 확정하지 않습니다.</p>
+    <div className="category-grid">
+      {RESULT_CATEGORIES.map((item) => <Link href={`${basePath}/${item.slug}`} className="category-card" key={item.slug}><strong>{item.label}</strong><span>{item.description}</span></Link>)}
+    </div>
+    {geminiReading.finalAdvice && <section className="deep-category final-advice">
+      <h4>전체 실천 조언</h4>
+      <p>{geminiReading.finalAdvice.summary}</p>
+      <ol>{geminiReading.finalAdvice.actions.map((action, index) => <li key={`${action}-${index}`}>{action}</li>)}</ol>
+    </section>}
+    {basePath === "/result" && <Link href="/start" className="text-link">새 사주 입력하기</Link>}
+  </>;
+}
+
+function ReadingCategoryDetail({ category, chart, geminiReading }: { category: ResultCategory; chart: SajuChart; geminiReading: GeminiReading }) {
+  const evidence = evidenceLabels(chart);
+  switch (category) {
+    case "self": return <AiDetail title="나 자신" section={geminiReading.personality} evidence={evidence} strengths={geminiReading.personality.strengths} cautions={geminiReading.personality.cautions} />;
+    case "work-money": return <AiDetail title="일과 돈" section={geminiReading.career} evidence={evidence} />;
+    case "relationships": return <AiDetail title="사랑과 관계" section={geminiReading.relationships} evidence={evidence} />;
+    case "life-flow": return geminiReading.lifeFlow ? <LifeFlowDetail section={geminiReading.lifeFlow} evidence={evidence} /> : <p>이 결과에는 삶의 흐름 풀이가 없습니다.</p>;
+    case "shensha": return geminiReading.shensha ? <ShenshaReadingDetail section={geminiReading.shensha} chart={chart} /> : <p>이 결과에는 살·귀인 풀이가 없습니다.</p>;
+  }
+}
+
+export function SharedResult({ record, nickname, category, token }: { record: StoredReading; nickname: string; category?: ResultCategory; token: string }) {
+  const basePath = `/share/${token}`;
+  const calculated = createReading(record.chart);
+  return <main className="shared-page">
+    <header className="page-header">
+      <p className="eyebrow">{nickname}님의 사주 결과</p>
+      <h1>{category ? RESULT_CATEGORIES.find((item) => item.slug === category)?.label : "공유받은 사주 결과"}</h1>
+      <p className="intro">공유 당시의 결과입니다. 오늘의 운세와 입력한 출생정보는 포함되지 않습니다.</p>
+      <Link href="/start" className="link-button">내 사주 시작하기</Link>
+    </header>
+    <section className="input-card" aria-label="공유받은 결과">
+      <ResultMenu basePath={basePath} active={category || "overview"} />
+      {!category ? <>
+        <div className="summary-card">
+          <p className="result-label">{nickname}님의 사주</p>
+          <h2 className="day-pillar">{record.chart.pillars[2].korean}일주</h2>
+          <p className="summary-text">{calculated.summary}</p>
+        </div>
+        <ResultOverview geminiReading={record.reading} basePath={basePath} />
+      </> : <ReadingCategoryDetail category={category} chart={record.chart} geminiReading={record.reading} />}
+    </section>
+  </main>;
 }
 
 const TEN_GOD_MEANINGS: Record<string, string> = {
@@ -622,7 +739,7 @@ function StructureDetail({ structure }: { structure: NonNullable<SajuChart["stru
     ...item.hidden.map((hidden) => hidden.tenGod),
   ]))];
   return (
-    <details open>
+    <details>
       <summary>내 사주의 구조</summary>
       <div className="detail-content structure-detail">
         <p><strong>태어난 계절</strong> — 월지 {structure.season.monthBranch}를 기준으로 {structure.season.name}, 중심 오행은 {structure.season.centralElement}입니다.</p>

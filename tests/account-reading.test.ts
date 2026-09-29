@@ -5,6 +5,7 @@ import {
   parseReadingRow,
   readingUpsert,
   safeNextPath,
+  selectAccountReading,
 } from "../lib/saju/account-reading";
 import type { StoredReading } from "../lib/saju/stored-reading";
 import { GET as authCallback } from "../app/auth/callback/route";
@@ -76,6 +77,27 @@ test("저장 내용에는 확인된 사용자 ID와 결과에 필요한 항목�
   ]);
   const serialized = JSON.stringify(payload);
   assert.doesNotMatch(serialized, /2005-12-23|08:37|GEMINI_API_KEY|access_token/);
+});
+
+test("서버 결과가 없으면 해당 계정의 임시 결과를 저장 대기 상태로 복원한다", () => {
+  assert.deepEqual(selectAccountReading(null, record), { record, pendingSave: true });
+  assert.equal(selectAccountReading(null, null), null);
+});
+
+test("임시 결과가 서버 결과보다 새로우면 임시 결과와 저장 재시도를 선택한다", () => {
+  const remote: StoredReading = { ...record, createdAt: "2026-09-22T23:59:59.999Z" };
+  assert.deepEqual(selectAccountReading(remote, record), { record, pendingSave: true });
+});
+
+test("서버 결과가 더 새롭거나 같은 시각이면 서버 결과를 선택한다", () => {
+  const newer: StoredReading = { ...record, createdAt: "2026-09-23T00:00:00.001Z" };
+  const sameTime: StoredReading = { ...record, reading: { ...record.reading, summary: "서버에 저장된 다른 해석입니다." } };
+  assert.deepEqual(selectAccountReading(newer, record), { record: newer, pendingSave: false });
+  assert.deepEqual(selectAccountReading(sameTime, record), { record: sameTime, pendingSave: false });
+});
+
+test("임시 결과가 없으면 서버 결과만 표시하고 저장 대기로 처리하지 않는다", () => {
+  assert.deepEqual(selectAccountReading(record, null), { record, pendingSave: false });
 });
 
 test("로그인 후 이동 주소는 서비스 안의 경로만 허용한다", () => {

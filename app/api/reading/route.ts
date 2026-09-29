@@ -28,7 +28,7 @@ type GeminiCall =
   | { kind: "network" }
   | { kind: "format" };
 
-async function generateJson(apiKey: string, prompt: string, schema: unknown): Promise<GeminiCall> {
+async function generateJson(apiKey: string, prompt: string, schema: unknown, source: "base" | "shensha"): Promise<GeminiCall> {
   let response: Response;
   try {
     response = await fetch(
@@ -47,7 +47,38 @@ async function generateJson(apiKey: string, prompt: string, schema: unknown): Pr
   } catch {
     return { kind: "network" };
   }
-  if (!response.ok) return { kind: "upstream", status: response.status };
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const details: unknown = payload?.error?.details;
+    const reason = Array.isArray(details)
+      ? details.find((detail: { reason?: unknown }) => typeof detail?.reason === "string")?.reason
+      : undefined;
+    const message = typeof payload?.error?.message === "string" ? payload.error.message : "";
+    const category = /api key|api_key_invalid|invalid key/i.test(message)
+      ? "api_key"
+      : /response.?schema|generation.?config|invalid json payload|request body/i.test(message)
+        ? "request_schema"
+        : /free tier|billing|country|region/i.test(message)
+          ? "availability"
+          : "unknown";
+    const diagnostic = message
+      .replaceAll(apiKey, "[redacted]")
+      .replace(/AIza[\w-]+/g, "[redacted]")
+      .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "[date]")
+      .slice(0, 240);
+    // Never log the upstream response body or an API key.
+    console.error("Gemini request failed", {
+      source,
+      status: response.status,
+      code: typeof payload?.error?.status === "string" && /^[A-Z_]{1,64}$/.test(payload.error.status)
+        ? payload.error.status
+        : "unknown",
+      reason: typeof reason === "string" && /^[A-Z_]{1,64}$/.test(reason) ? reason : "unknown",
+      category,
+      diagnostic,
+    });
+    return { kind: "upstream", status: response.status };
+  }
   try {
     const payload = await response.json();
     const generated = payload?.candidates?.[0]?.content?.parts
@@ -133,16 +164,19 @@ export async function POST(request: Request) {
     return error("AI 해석 설정이 아직 준비되지 않았습니다.", 503);
   }
 
-  const basePromise = generateJson(apiKey, makeGeminiPrompt(chart), GEMINI_RESPONSE_SCHEMA);
+  const basePromise = generateJson(apiKey, makeGeminiPrompt(chart), GEMINI_RESPONSE_SCHEMA, "base");
   const shenshaPromise = chart.shensha?.matched.length
-    ? generateJson(apiKey, makeShenshaPrompt(chart), makeShenshaResponseSchema(chart))
+    ? generateJson(apiKey, makeShenshaPrompt(chart), makeShenshaResponseSchema(), "shensha")
     : Promise.resolve<GeminiCall>({ kind: "ok", value: { overview: "이 규칙집에서 발견된 살과 귀인이 없습니다.", items: [] } });
   const calls = await Promise.all([basePromise, shenshaPromise]);
   if (calls.some((call) => call.kind !== "ok")) return callError(calls);
 
+  let validationPhase: "base" | "shensha" | "combined" = "base";
   try {
     const base = validateGeminiReading((calls[0] as Extract<GeminiCall, { kind: "ok" }>).value, true, chart);
+    validationPhase = "shensha";
     const shensha = validateShenshaReading((calls[1] as Extract<GeminiCall, { kind: "ok" }>).value, chart);
+    validationPhase = "combined";
     const reading = validateGeminiReading({ ...base, shensha }, false, chart);
     const record: StoredReading = {
       version: 1,
@@ -154,7 +188,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ chart, reading, createdAt: record.createdAt, accountSave }, { headers: NO_STORE });
   } catch (caught) {
     console.error(
-      "Gemini reading validation failed:",
+      `Gemini ${validationPhase} validation failed:`,
       caught instanceof Error ? caught.message : "unknown validation error",
     );
     return error("AI 해석 형식을 확인하지 못했습니다. 다시 시도해주세요.", 502);
